@@ -1,17 +1,6 @@
-/**
- * Persistência (bd, ou no próprio app) <-> Repositório <-> Rota
- * Buscar as informações que estão dentro de uma DB
- * Método create, find, etc
- * Detentor das operações que faremos em cima dos dados da aplicação
- */
+import { EntityRepository, Repository } from 'typeorm';
 
-import Transaction from '../model/Transaction';
-
-interface CreateTransactionDTO {
-  title: string;
-  value: number;
-  type: 'income' | 'outcome';
-}
+import Transaction from '../models/Transaction';
 
 interface Balance {
   income: number;
@@ -19,27 +8,20 @@ interface Balance {
   total: number;
 }
 
-class TransactionsRepository {
-  private transactions: Transaction[];
+@EntityRepository(Transaction)
+class TransactionsRepository extends Repository<Transaction> {
+  public async getBalance(): Promise<Balance> {
+    const transactions = await this.find();
 
-  constructor() {
-    this.transactions = [];
-  }
-
-  public all(): Transaction[] {
-    return this.transactions;
-  }
-
-  public getBalance(): Balance {
-    const { income, outcome } = this.transactions.reduce(
+    const { income, outcome } = transactions.reduce(
       (accumulator: Balance, transaction: Transaction) => {
         switch (transaction.type) {
           case 'income':
-            accumulator.income += transaction.value;
+            accumulator.income += Number(transaction.value);
             break;
 
           case 'outcome':
-            accumulator.outcome += transaction.value;
+            accumulator.outcome += Number(transaction.value);
             break;
 
           default:
@@ -64,12 +46,20 @@ class TransactionsRepository {
     };
   }
 
-  public create({ title, value, type }: CreateTransactionDTO): Transaction {
-    const transaction = new Transaction({ title, value, type });
+  public async findFormated(): Promise<Transaction[]> {
+    const transactions = await this.createQueryBuilder('transactions')
+      .leftJoinAndSelect('transactions.category', 'category')
+      .select([
+        'transactions.id',
+        'transactions.title',
+        'transactions.value',
+        'transactions.type',
+        'category.id',
+        'category.title',
+      ])
+      .getMany();
 
-    this.transactions.push(transaction);
-
-    return transaction;
+    return transactions;
   }
 }
 

@@ -1,45 +1,68 @@
-import Transaction from '../model/Transaction';
+import { getCustomRepository, getRepository } from 'typeorm';
+
+import AppError from '../errors/AppError';
+
+import Transaction from '../models/Transaction';
+import Category from '../models/Category';
+
 import TransactionRepository from '../repository/TransactionsRepository';
 
-interface RequestDTO {
+interface Request {
   title: string;
   value: number;
   type: 'income' | 'outcome';
+  category: string;
 }
 
-// Não tem acesso às variáveis de requisição e resposta
-// Toda lógica da criação de agendamento
-class CreateTransacrionService {
-  private transactionsRepository: TransactionRepository;
+class CreateTransactionService {
+  public async execute({
+    title,
+    value,
+    type,
+    category,
+  }: Request): Promise<Transaction> {
+    const transactionsRepository = getCustomRepository(TransactionRepository);
 
-  // Receber dependências através do constructor
-  // transactionRepository será uma instância de TransactionRepository
-  constructor(transactionsRepository: TransactionRepository) {
-    this.transactionsRepository = transactionsRepository;
-  }
+    // Não precisamos criar sempre um CustomRepository se não formos adicionar novos métodos
+    const categoryRepository = getRepository(Category);
 
-  public execute({ title, value, type }: RequestDTO): Transaction {
     if (!['income', 'outcome'].includes(type)) {
-      throw new Error('Transaction type is invalid');
+      throw new AppError('Transaction type is invalid');
     }
 
-    const { total } = this.transactionsRepository.getBalance();
+    const { total } = await transactionsRepository.getBalance();
 
-    // regra de negocio
-    if (type === 'outcome' && value > total) {
-      throw Error(
+    if (type === 'outcome' && total < value) {
+      throw new AppError(
         'The value goes beyond the total amount the user has in cash',
       );
     }
 
-    const transaction = this.transactionsRepository.create({
+    let transactionCategory = await categoryRepository.findOne({
+      where: {
+        title: category,
+      },
+    });
+
+    if (!transactionCategory) {
+      transactionCategory = categoryRepository.create({
+        title: category,
+      });
+
+      await categoryRepository.save(transactionCategory);
+    }
+
+    const transaction = transactionsRepository.create({
       title,
       value,
       type,
+      category: transactionCategory,
     });
+
+    await transactionsRepository.save(transaction);
 
     return transaction;
   }
 }
 
-export default CreateTransacrionService;
+export default CreateTransactionService;

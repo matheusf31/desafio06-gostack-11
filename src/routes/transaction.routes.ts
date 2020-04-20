@@ -1,48 +1,67 @@
-/**
- * Não tem responsabilidade pelo formato dos dados e nem pela maneira como eles são armazenados
- * Receber a requisição, chamar outro arquivo e devolver uma resposta
- */
-
 import { Router } from 'express';
+import multer from 'multer';
+import { getCustomRepository } from 'typeorm';
+
+import uploadConfig from '../config/upload';
 
 import TransactionsRepository from '../repository/TransactionsRepository';
-import CreateTransactionsService from '../service/CreateTransactionService';
+
+import CreateTransactionService from '../service/CreateTransactionService';
+import DeleteTransactionService from '../service/DeleteTransactionService';
+import ImportTransactionsService from '../service/ImportTransactionsService';
 
 const transactionsRouter = Router();
-const transactionRepository = new TransactionsRepository();
+const upload = multer(uploadConfig);
 
-transactionsRouter.post('/', (req, res) => {
-  try {
-    const { title, value, type } = req.body;
+transactionsRouter.post('/', async (req, res) => {
+  const { title, value, type, category } = req.body;
 
-    /**
-     * Transformação de dado !== Regra de negócio
-     */
+  const createTransaction = new CreateTransactionService();
 
-    const createTransaction = new CreateTransactionsService(
-      transactionRepository,
-    );
+  const transaction = await createTransaction.execute({
+    title,
+    value,
+    type,
+    category,
+  });
 
-    const transaction = createTransaction.execute({ title, value, type });
+  delete transaction.created_at;
+  delete transaction.updated_at;
+  delete transaction.category.created_at;
+  delete transaction.category.updated_at;
 
-    return res.json(transaction);
-  } catch (err) {
-    return res.status(400).json({ error: err.message });
-  }
+  return res.json(transaction);
 });
 
-transactionsRouter.get('/', (req, res) => {
-  try {
-    const transactions = transactionRepository.all();
-    const balance = transactionRepository.getBalance();
+transactionsRouter.get('/', async (req, res) => {
+  const transactionsRepository = getCustomRepository(TransactionsRepository);
 
-    return res.json({
-      transactions,
-      balance,
-    });
-  } catch (err) {
-    return res.status(400).json({ error: err.message });
-  }
+  const transactions = await transactionsRepository.findFormated();
+
+  const balance = await transactionsRepository.getBalance();
+
+  return res.json({
+    transactions,
+    balance,
+  });
+});
+
+transactionsRouter.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const deleteTransaction = new DeleteTransactionService();
+
+  await deleteTransaction.execute(id);
+
+  return res.status(204).send();
+});
+
+transactionsRouter.post('/import', upload.single('file'), async (req, res) => {
+  const importTransactions = new ImportTransactionsService();
+
+  const transactions = await importTransactions.execute(req.file.path);
+
+  return res.json(transactions);
 });
 
 export default transactionsRouter;
